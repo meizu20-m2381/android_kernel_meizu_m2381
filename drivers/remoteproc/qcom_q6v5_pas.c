@@ -13,6 +13,8 @@
 #include <linux/interrupt.h>
 #include <linux/interconnect.h>
 #include <linux/kernel.h>
+#include <linux/kobject.h>
+#include <linux/sysfs.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -782,6 +784,56 @@ static void qcom_pas_unassign_memory_region(struct qcom_pas *pas)
 	}
 }
 
+static struct rproc *m2381_adsp_rproc;
+static struct rproc *m2381_cdsp_rproc;
+
+static ssize_t m2381_boot_adsp_store(struct kobject *kobj, struct kobj_attribute *attr,
+				     const char *buf, size_t count)
+{
+	int val = 0;
+	if (kstrtoint(buf, 0, &val) || val != 1)
+		return -EINVAL;
+	if (m2381_adsp_rproc && m2381_adsp_rproc->state == RPROC_OFFLINE) {
+		int ret = rproc_boot(m2381_adsp_rproc);
+		if (ret)
+			return ret;
+	}
+	return count;
+}
+
+static ssize_t m2381_boot_cdsp_store(struct kobject *kobj, struct kobj_attribute *attr,
+				     const char *buf, size_t count)
+{
+	int val = 0;
+	if (kstrtoint(buf, 0, &val) || val != 1)
+		return -EINVAL;
+	if (m2381_cdsp_rproc && m2381_cdsp_rproc->state == RPROC_OFFLINE) {
+		int ret = rproc_boot(m2381_cdsp_rproc);
+		if (ret)
+			return ret;
+	}
+	return count;
+}
+
+static struct kobj_attribute m2381_boot_adsp_attr = __ATTR(boot, 0220, NULL, m2381_boot_adsp_store);
+static struct kobj_attribute m2381_boot_cdsp_attr = __ATTR(boot, 0220, NULL, m2381_boot_cdsp_store);
+
+static void m2381_register_boot_sysfs(struct rproc *rproc, int pas_id)
+{
+	struct kobject *kobj;
+	if (pas_id == 1 && !m2381_adsp_rproc) {
+		m2381_adsp_rproc = rproc;
+		kobj = kobject_create_and_add("boot_adsp", kernel_kobj);
+		if (kobj && sysfs_create_file(kobj, &m2381_boot_adsp_attr.attr))
+			pr_warn("m2381: failed to create /sys/kernel/boot_adsp/boot\n");
+	} else if (pas_id == 18 && !m2381_cdsp_rproc) {
+		m2381_cdsp_rproc = rproc;
+		kobj = kobject_create_and_add("boot_cdsp", kernel_kobj);
+		if (kobj && sysfs_create_file(kobj, &m2381_boot_cdsp_attr.attr))
+			pr_warn("m2381: failed to create /sys/kernel/boot_cdsp/boot\n");
+	}
+}
+
 static int qcom_pas_probe(struct platform_device *pdev)
 {
 	const struct qcom_pas_data *desc;
@@ -897,6 +949,7 @@ static int qcom_pas_probe(struct platform_device *pdev)
 	if (ret)
 		goto remove_ssr_sysmon;
 
+	m2381_register_boot_sysfs(rproc, pas->pas_id);
 	return 0;
 
 remove_ssr_sysmon:

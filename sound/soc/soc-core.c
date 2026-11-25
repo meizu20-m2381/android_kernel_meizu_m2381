@@ -1030,8 +1030,9 @@ component_empty:
 	return -EINVAL;
 
 component_not_found:
-	dev_dbg(card->dev, "ASoC: Component %s not found for link %s\n", dlc->name, link->name);
-	return -EPROBE_DEFER;
+	return dev_err_probe(card->dev, -EPROBE_DEFER,
+			     "ASoC: component %s (%pOF) not found for link %s\n",
+			     dlc->name, dlc->of_node, link->name);
 
 dai_empty:
 	dev_err(card->dev, "ASoC: DAI name is not set for %s\n", link->name);

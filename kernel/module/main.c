@@ -10,6 +10,15 @@
 #include <linux/export.h>
 #include <linux/extable.h>
 #include <linux/moduleloader.h>
+
+static bool m2381_compat_modprobe;
+static int __init m2381_compat_modprobe_setup(char *str)
+{
+	if (str && (*str == 49 || *str == 121))
+		m2381_compat_modprobe = true;
+	return 1;
+}
+__setup("m2381_compat_modprobe=", m2381_compat_modprobe_setup);
 #include <linux/module_signature.h>
 #include <linux/module_symbol.h>
 #include <linux/trace_events.h>
@@ -2128,6 +2137,10 @@ static int elf_validity_cache_index_mod(struct load_info *info)
 	}
 
 	if (shdr->sh_size != sizeof(struct module)) {
+		if (m2381_compat_modprobe && info->name && !strcmp(info->name, "msm_sysstats")) {
+			pr_info("m2381_compat_modprobe: bypassing stock %s\n", info->name);
+			return -EEXIST;
+		}
 		pr_err("module %s: .gnu.linkonce.this_module section size must match the kernel's built struct module size at run time\n",
 		       info->name ?: "(missing .modinfo section or name field)");
 		return -ENOEXEC;

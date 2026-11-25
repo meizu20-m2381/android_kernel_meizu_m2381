@@ -2764,6 +2764,42 @@ out:
  * WARNING: This function may return -ESTALE, indicating that the caller
  * must retry the operation after re-acquiring the policy pointer!
  */
+static const char *m2381_sysfs_genfs_compat(const char *path, char *buf, size_t bufsz)
+{
+	static const struct {
+		const char *from;
+		const char *to;
+	} map[] = {
+		{
+			"/devices/platform/soc/soc:qcom,pmic_glink/pmic_glink.m2391-charger.0",
+			"/devices/platform/soc/soc:qcom,pmic_glink/soc:qcom,pmic_glink:qcom,battery_charger",
+		},
+		{
+			"/devices/platform/soc/soc:qcom,pmic_glink/pmic_glink.ucsi.0/power_supply/ucsi-source-psy-pmic_glink.ucsi.01",
+			"/devices/platform/soc/soc:qcom,pmic_glink/soc:qcom,pmic_glink:qcom,ucsi/power_supply/ucsi-source-psy-soc:qcom,pmic_glink:qcom,ucsi1",
+		},
+		{
+			"/devices/platform/soc/soc:qcom,pmic_glink/pmic_glink.ucsi.0",
+			"/devices/platform/soc/soc:qcom,pmic_glink/soc:qcom,pmic_glink:qcom,ucsi",
+		},
+	};
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(map); i++) {
+		size_t flen = strlen(map[i].from);
+
+		if (strncmp(path, map[i].from, flen) == 0 &&
+		    (path[flen] == '/' || path[flen] == '\0')) {
+			int ret = snprintf(buf, bufsz, "%s%s", map[i].to, path + flen);
+
+			if (ret < 0 || (size_t)ret >= bufsz)
+				return NULL;
+			return buf;
+		}
+	}
+	return NULL;
+}
+
 static inline int __security_genfs_sid(struct selinux_policy *policy,
 				       const char *fstype,
 				       const char *path,
@@ -2795,16 +2831,34 @@ static inline int __security_genfs_sid(struct selinux_policy *policy,
 
 	wildcard = ebitmap_get_bit(&policy->policydb.policycaps,
 				   POLICYDB_CAP_GENFS_SECLABEL_WILDCARD);
-	for (c = genfs->head; c; c = c->next) {
-		if (!c->v.sclass || sclass == c->v.sclass) {
-			if (wildcard) {
-				if (match_wildcard(c->u.name, path))
-					break;
-			} else {
-				size_t len = strlen(c->u.name);
+	{
+		char compat_buf[256];
+		bool retried = false;
 
-				if ((strncmp(c->u.name, path, len)) == 0)
-					break;
+retry_genfs:
+		for (c = genfs->head; c; c = c->next) {
+			if (!c->v.sclass || sclass == c->v.sclass) {
+				if (wildcard) {
+					if (match_wildcard(c->u.name, path))
+						break;
+				} else {
+					size_t len = strlen(c->u.name);
+
+					if ((strncmp(c->u.name, path, len)) == 0)
+						break;
+				}
+			}
+		}
+
+		if (!retried && (!c || strcmp(c->u.name, "/") == 0) &&
+		    strcmp(fstype, "sysfs") == 0) {
+			const char *compat_path = m2381_sysfs_genfs_compat(path, compat_buf,
+									   sizeof(compat_buf));
+
+			if (compat_path) {
+				path = compat_path;
+				retried = true;
+				goto retry_genfs;
 			}
 		}
 	}

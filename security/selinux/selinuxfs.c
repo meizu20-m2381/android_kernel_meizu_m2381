@@ -133,6 +133,14 @@ static ssize_t sel_read_enforce(struct file *filp, char __user *buf,
 }
 
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
+static bool m2381_force_permissive;
+static int __init m2381_force_permissive_setup(char *str)
+{
+	m2381_force_permissive = (str && str[0] == '1');
+	return 1;
+}
+__setup("m2381_force_permissive=", m2381_force_permissive_setup);
+
 static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 				 size_t count, loff_t *ppos)
 
@@ -158,6 +166,8 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 		goto out;
 
 	new_value = !!scan_value;
+	if (m2381_force_permissive)
+		new_value = false;
 
 	old_value = enforcing_enabled();
 	if (new_value != old_value) {

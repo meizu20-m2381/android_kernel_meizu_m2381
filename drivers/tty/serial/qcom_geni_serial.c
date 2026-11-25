@@ -583,6 +583,7 @@ __qcom_geni_serial_console_write(struct uart_port *uport, const char *s,
 static void qcom_geni_serial_console_write(struct console *co, const char *s,
 			      unsigned int count)
 {
+	return; /* Disabled: blocking 115200 UART TX slows boot/shutdown */
 	struct uart_port *uport;
 	struct qcom_geni_serial_port *port;
 	u32 m_irq_en, s_irq_en;
@@ -1593,6 +1594,7 @@ static int qcom_geni_console_setup(struct console *co, char *options)
 static void qcom_geni_serial_earlycon_write(struct console *con,
 					const char *s, unsigned int n)
 {
+	return; /* Disabled: blocking 115200 UART TX */
 	struct earlycon_device *dev = con->data;
 
 	__qcom_geni_serial_console_write(&dev->port, s, n);
