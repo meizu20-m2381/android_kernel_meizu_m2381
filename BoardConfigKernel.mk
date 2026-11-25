@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-TARGET_KERNEL_SOURCE := kernel/meizu/m2391
-TARGET_KERNEL_CONFIG := gki_defconfig m2391.config
+TARGET_KERNEL_SOURCE := kernel/meizu/m2381
+TARGET_KERNEL_CONFIG := gki_defconfig m2381.config
 TARGET_KERNEL_VERSION := 6.18
 TARGET_KERNEL_CLANG_VERSION := r596125
 BOARD_KERNEL_IMAGE_NAME := Image
 TARGET_KERNEL_DTB := dtbs
-TARGET_DTB_LIST_WILDCARD := meizu/m2391
+TARGET_DTB_LIST_WILDCARD := meizu/m2381
 
 BOARD_KERNEL_BASE := 0x00000000
 BOARD_KERNEL_CMDLINE := video=vfb:640x400,bpp=32,memsize=3072000 nosoftlockup \
@@ -16,7 +16,7 @@ BOARD_MKBOOTIMG_ARGS += --header_version 4 --kernel_offset 0x00008000 \
     --ramdisk_offset 0x01000000 --tags_offset 0x00000100 --dtb_offset 0x01f00000
 BOARD_INCLUDE_DTB_IN_BOOTIMG := true
 BOARD_KERNEL_SEPARATED_DTBO := true
-BOARD_DTBO_CFG := $(TARGET_KERNEL_SOURCE)/arch/arm64/boot/dts/meizu/dtbo.cfg
+BOARD_DTBO_CFG := $(TARGET_KERNEL_SOURCE)/arch/arm64/boot/dts/meizu/m2381-dtbo.cfg
 
 # Kernel modules (inline out-of-tree build)
 TARGET_AUTO_COLLECT_KERNEL_MODULE_DEPS := true
@@ -32,7 +32,7 @@ BOARD_DO_NOT_STRIP_VENDOR_RAMDISK_MODULES := true
 BOARD_VENDOR_KERNEL_MODULES_BLOCKLIST_FILE := $(DEVICE_PATH)/configs/modules/modules.blocklist.vendor_dlkm
 BOARD_VENDOR_RAMDISK_KERNEL_MODULES_BLOCKLIST_FILE := $(DEVICE_PATH)/configs/modules/modules.blocklist.vendor_ramdisk
 
-TARGET_KERNEL_EXT_MODULE_ROOT := kernel/meizu/m2391-modules
+TARGET_KERNEL_EXT_MODULE_ROOT := kernel/meizu/m2381-modules
 TARGET_KERNEL_EXT_MODULES := \
     meizu/system \
     qcom/opensource/touch-drivers/mz_gesture \
