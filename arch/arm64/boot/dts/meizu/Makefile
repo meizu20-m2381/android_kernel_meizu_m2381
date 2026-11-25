@@ -11,3 +11,16 @@ dtb-$(CONFIG_ARCH_QCOM) += m2391-06-b3-overlay.dtbo
 dtb-$(CONFIG_ARCH_QCOM) += m2391-07-npi-07-overlay.dtbo
 dtb-$(CONFIG_ARCH_QCOM) += m2391-08-npi-08-overlay.dtbo
 dtb-$(CONFIG_ARCH_QCOM) += m2391-09-mp-overlay.dtbo
+
+# Meizu m2381 board DTB
+dtb-$(CONFIG_ARCH_QCOM) += m2381.dtb
+dtb-$(CONFIG_ARCH_QCOM) += m2381-00-evb-overlay.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += m2381-01-b0-overlay.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += m2381-02-b1-overlay.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += m2381-03-b1-1-overlay.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += m2381-04-b2-overlay.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += m2381-05-b2-1-overlay.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += m2381-06-b3-overlay.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += m2381-07-npi-overlay.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += m2381-08-npi-overlay.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += m2381-09-mp-overlay.dtbo
