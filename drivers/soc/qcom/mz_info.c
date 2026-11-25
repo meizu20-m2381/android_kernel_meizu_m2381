@@ -16,6 +16,7 @@
 static char sn[16], chipid[64], psn[32], imei1[16], imei2[16], meid[16];
 static char socid[12], sw_version[16], bl_version[16], color[5];
 static char ddr_manufacturer[16];
+static char model_name[16] = "m2391";
 static u32 bl_unlock, sec, sec_stage, panel_id, rf_id;
 static u32 project_id, hw_version, dp_exist, rtx, ssr_flag;
 static struct proc_dir_entry *info_dir;
@@ -69,7 +70,7 @@ static int info_show(struct seq_file *seq, void *unused)
 	case INFO_DDR: text = ddr_manufacturer; break;
 	case INFO_CHIPID: text = chipid; break;
 	case INFO_COLOR: text = color; break;
-	case INFO_MODEL: text = "m2391"; break;
+	case INFO_MODEL: text = model_name; break;
 	case INFO_SW: text = sw_version; break;
 	case INFO_BL: text = bl_version; break;
 	case INFO_SOC: text = "SM8550"; break;
@@ -180,6 +181,16 @@ put_node:
 		return ret;
 #undef READ_VALUE
 #undef READ_STRING
+	{
+		struct device_node *root = of_find_node_by_path("/");
+		const char *ver;
+
+		if (root && !of_property_read_string(root, "meizu,chip-version", &ver)) {
+			if (!strncmp(ver, "M2381", 5) || !strncmp(ver, "m2381", 5))
+				strscpy(model_name, "m2381", sizeof(model_name));
+		}
+		of_node_put(root);
+	}
 	info_dir = proc_mkdir("mz_info", NULL);
 	if (!info_dir)
 		return -ENOMEM;
