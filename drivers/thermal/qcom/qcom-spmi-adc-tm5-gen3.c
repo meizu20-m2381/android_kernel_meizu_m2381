@@ -166,7 +166,9 @@ static int adc_tm5_gen3_get_temp(struct thermal_zone_device *tz, int *temp)
 
 	adc_tm5 = prop->chip;
 
+	pr_info("TM5TRACE get_temp enter ch=%s\n", prop->common_props.label);
 	ret = adc5_gen3_get_scaled_reading(adc_tm5->dev, &prop->common_props, temp);
+	pr_info("TM5TRACE get_temp exit ch=%s ret=%d\n", prop->common_props.label, ret);
 	if (!ret)
 		thermal_minidump_sample(adc_tm5->minidump, thermal_zone_device_type(tz), *temp);
 	return ret;
@@ -241,12 +243,16 @@ static int adc_tm5_gen3_configure(struct adc_tm5_gen3_channel_props *prop,
 	u16 adc_code;
 	int ret;
 
+	pr_info("TM5TRACE cfg poll_wait_hs sdam=%u tmch=%u\n", prop->sdam_index, prop->tm_chan_index);
 	ret = adc5_gen3_poll_wait_hs(adc_tm5->dev_data, prop->sdam_index);
+	pr_info("TM5TRACE cfg poll_wait_hs ret=%d\n", ret);
 	if (ret < 0)
 		return ret;
 
+	pr_info("TM5TRACE cfg read SID sdam=%u\n", prop->sdam_index);
 	ret = adc5_gen3_read(adc_tm5->dev_data, prop->sdam_index,
 			     ADC5_GEN3_SID, buf, sizeof(buf));
+	pr_info("TM5TRACE cfg read ret=%d\n", ret);
 	if (ret < 0)
 		return ret;
 
@@ -294,14 +300,19 @@ static int adc_tm5_gen3_configure(struct adc_tm5_gen3_channel_props *prop,
 		buf[7] |= ADC5_GEN3_HIGH_THR_INT_EN;
 	}
 
+	pr_info("TM5TRACE cfg write SID sdam=%u\n", prop->sdam_index);
 	ret = adc5_gen3_write(adc_tm5->dev_data, prop->sdam_index, ADC5_GEN3_SID,
 			      buf, sizeof(buf));
+	pr_info("TM5TRACE cfg write ret=%d\n", ret);
 	if (ret < 0)
 		return ret;
 
 	conv_req = ADC5_GEN3_CONV_REQ_REQ;
-	return adc5_gen3_write(adc_tm5->dev_data, prop->sdam_index,
+	pr_info("TM5TRACE cfg write CONV_REQ\n");
+	ret = adc5_gen3_write(adc_tm5->dev_data, prop->sdam_index,
 			       ADC5_GEN3_CONV_REQ, &conv_req, sizeof(conv_req));
+	pr_info("TM5TRACE cfg done ret=%d\n", ret);
+	return ret;
 }
 
 static int adc_tm5_gen3_set_trip_temp(struct thermal_zone_device *tz,
@@ -315,7 +326,7 @@ static int adc_tm5_gen3_set_trip_temp(struct thermal_zone_device *tz,
 
 	adc_tm5 = prop->chip;
 
-	dev_dbg(adc_tm5->dev, "channel:%s, low_temp(mdegC):%d, high_temp(mdegC):%d\n",
+	pr_info("TM5TRACE set_trips ch=%s low=%d high=%d\n",
 		prop->common_props.label, low_temp, high_temp);
 
 	guard(adc5_gen3)(adc_tm5);
@@ -336,6 +347,9 @@ static int adc_tm5_register_tzd(struct adc_tm5_gen3_chip *adc_tm5)
 
 	for (int i = 0; i < adc_tm5->nchannels; i++) {
 		channel = ADC5_GEN3_V_CHAN(adc_tm5->chan_props[i].common_props);
+		pr_info("TM5TRACE register_tzd i=%d ch=0x%x label=%s sdam=%u tm=%u\n", i, channel,
+			adc_tm5->chan_props[i].common_props.label,
+			adc_tm5->chan_props[i].sdam_index, adc_tm5->chan_props[i].tm_chan_index);
 		tzd = devm_thermal_of_zone_register(adc_tm5->dev, channel,
 						    &adc_tm5->chan_props[i],
 						    &adc_tm_ops);
@@ -349,6 +363,7 @@ static int adc_tm5_register_tzd(struct adc_tm5_gen3_chip *adc_tm5)
 			return PTR_ERR(tzd);
 		}
 		adc_tm5->chan_props[i].tzd = tzd;
+		pr_info("TM5TRACE register_tzd i=%d done\n", i);
 		ret = devm_thermal_add_hwmon_sysfs(adc_tm5->dev, tzd);
 		if (ret)
 			return ret;
@@ -376,6 +391,7 @@ static int adc_tm5_probe(struct auxiliary_device *aux_dev,
 	struct device *dev = &aux_dev->dev;
 	int ret;
 
+	pr_info("TM5TRACE probe enter\n");
 	adc_tm5 = devm_kzalloc(dev, sizeof(*adc_tm5), GFP_KERNEL);
 	if (!adc_tm5)
 		return -ENOMEM;
@@ -416,9 +432,12 @@ static int adc_tm5_probe(struct auxiliary_device *aux_dev,
 	if (ret)
 		return ret;
 
+	pr_info("TM5TRACE probe nch=%u nsdam=%u\n", adc_tm5->nchannels, adc_tm5->dev_data->num_sdams);
 	if (of_machine_is_compatible("qcom,kalama"))
 		adc_tm5->minidump = devm_thermal_minidump_register(dev, "adc5_gen3");
+	pr_info("TM5TRACE probe minidump done\n");
 	ret = adc_tm5_register_tzd(adc_tm5);
+	pr_info("TM5TRACE probe register_tzd ret=%d\n", ret);
 	if (ret)
 		return ret;
 
@@ -438,6 +457,7 @@ static int adc_tm5_probe(struct auxiliary_device *aux_dev,
 		if (i == 0)
 			irq_flags |= IRQF_SHARED;
 
+		pr_info("TM5TRACE request irq sdam=%d irq=%d\n", i, adc_tm5->dev_data->base[i].irq);
 		ret = devm_request_threaded_irq(dev,
 						adc_tm5->dev_data->base[i].irq,
 						NULL,

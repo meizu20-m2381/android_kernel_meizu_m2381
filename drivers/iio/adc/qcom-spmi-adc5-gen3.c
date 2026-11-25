@@ -21,11 +21,14 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
+#include <linux/thermal.h>
 #include <linux/types.h>
 #include <linux/unaligned.h>
+#include <linux/workqueue.h>
 
 #define ADC5_GEN3_VADC_SDAM			0x0
 
@@ -36,11 +39,13 @@ struct adc5_chip;
  * @common_props: structure with ADC channel properties (common to TM usage).
  * @adc_tm: indicates TM type if the channel is used for TM measurements.
  * @chip: pointer to top-level ADC device structure.
+ * @poll_zone: thermal zone that uses immediate conversions for polling.
  */
 struct adc5_channel_prop {
 	struct adc5_channel_common_prop common_props;
 	int adc_tm;
 	struct adc5_chip *chip;
+	struct thermal_zone_device *poll_zone;
 };
 
 /**
@@ -57,6 +62,7 @@ struct adc5_channel_prop {
  * @conversion_error: last sequencer error delivered by the shared IRQ.
  * @data: software configuration data.
  * @n_tm_channels: number of ADC channels used for TM measurements.
+ * @thermal_poll_work: refreshes zones using immediate conversions.
  */
 struct adc5_chip {
 	struct device *dev;
@@ -70,6 +76,7 @@ struct adc5_chip {
 	int conversion_error;
 	const struct adc5_data *data;
 	unsigned int n_tm_channels;
+	struct delayed_work thermal_poll_work;
 };
 
 int adc5_gen3_read(struct adc5_device_data *adc, unsigned int sdam_index,
@@ -344,25 +351,108 @@ static int adc5_gen3_fwnode_xlate(struct iio_dev *indio_dev,
 	return -ENOENT;
 }
 
+static int adc5_gen3_read_processed(struct adc5_chip *adc,
+				   struct adc5_channel_common_prop *prop,
+				   int *val)
+{
+	u16 code;
+	int ret;
+
+	ret = adc5_gen3_do_conversion(adc, prop, &code);
+	if (ret)
+		return ret;
+
+	return qcom_adc5_hw_scale(prop->scale_fn_type, prop->prescale,
+				  adc->data, code, val);
+}
+
+static int adc5_gen3_poll_get_temp(struct thermal_zone_device *tz, int *temp)
+{
+	struct adc5_channel_prop *prop = thermal_zone_device_priv(tz);
+
+	return adc5_gen3_read_processed(prop->chip, &prop->common_props, temp);
+}
+
+static const struct thermal_zone_device_ops adc5_gen3_poll_ops = {
+	.get_temp = adc5_gen3_poll_get_temp,
+};
+
+static void adc5_gen3_thermal_poll(struct work_struct *work)
+{
+	struct adc5_chip *adc = container_of(to_delayed_work(work),
+					    struct adc5_chip, thermal_poll_work);
+	unsigned int i;
+
+	for (i = 0; i < adc->nchannels; i++) {
+		struct thermal_zone_device *tz = adc->chan_props[i].poll_zone;
+
+		if (tz)
+			thermal_zone_device_update(tz, THERMAL_EVENT_UNSPECIFIED);
+	}
+
+	queue_delayed_work(system_freezable_wq, &adc->thermal_poll_work, HZ);
+}
+
+static void adc5_gen3_stop_thermal_poll(void *data)
+{
+	struct adc5_chip *adc = data;
+
+	disable_delayed_work_sync(&adc->thermal_poll_work);
+}
+
+static int adc5_gen3_register_polled_zones(struct adc5_chip *adc)
+{
+	unsigned int i, registered = 0;
+	int ret;
+
+	for (i = 0; i < adc->nchannels; i++) {
+		struct adc5_channel_prop *prop = &adc->chan_props[i];
+		struct thermal_zone_device *tz;
+
+		if (!prop->adc_tm)
+			continue;
+
+		tz = devm_thermal_of_zone_register(adc->dev,
+				ADC5_GEN3_V_CHAN(prop->common_props), prop,
+				&adc5_gen3_poll_ops);
+		if (PTR_ERR_OR_ZERO(tz) == -ENODEV)
+			continue;
+		if (IS_ERR(tz))
+			return dev_err_probe(adc->dev, PTR_ERR(tz),
+					     "Failed to register thermal zone for %s\n",
+					     prop->common_props.label);
+
+		prop->poll_zone = tz;
+		registered++;
+	}
+
+	if (!registered)
+		return 0;
+
+	INIT_DELAYED_WORK(&adc->thermal_poll_work, adc5_gen3_thermal_poll);
+	ret = devm_add_action_or_reset(adc->dev, adc5_gen3_stop_thermal_poll, adc);
+	if (ret)
+		return ret;
+
+	queue_delayed_work(system_freezable_wq, &adc->thermal_poll_work, HZ);
+	dev_info(adc->dev, "Polling %u ADC thermal zones\n", registered);
+
+	return 0;
+}
+
 static int adc5_gen3_read_raw(struct iio_dev *indio_dev,
 			      struct iio_chan_spec const *chan, int *val,
 			      int *val2, long mask)
 {
 	struct adc5_chip *adc = iio_priv(indio_dev);
 	struct adc5_channel_common_prop *prop;
-	u16 adc_code_volt;
 	int ret;
 
 	prop = &adc->chan_props[chan->address].common_props;
 
 	switch (mask) {
 	case IIO_CHAN_INFO_PROCESSED:
-		ret = adc5_gen3_do_conversion(adc, prop, &adc_code_volt);
-		if (ret)
-			return ret;
-
-		ret = qcom_adc5_hw_scale(prop->scale_fn_type, prop->prescale,
-					 adc->data, adc_code_volt, val);
+		ret = adc5_gen3_read_processed(adc, prop, val);
 		if (ret)
 			return ret;
 
@@ -711,16 +801,8 @@ int adc5_gen3_get_scaled_reading(struct device *dev,
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(dev->parent);
 	struct adc5_chip *adc = iio_priv(indio_dev);
-	u16 adc_code_volt;
-	int ret;
 
-	ret = adc5_gen3_do_conversion(adc, common_props, &adc_code_volt);
-	if (ret)
-		return ret;
-
-	return qcom_adc5_hw_scale(common_props->scale_fn_type,
-				  common_props->prescale,
-				  adc->data, adc_code_volt, val);
+	return adc5_gen3_read_processed(adc, common_props, val);
 }
 EXPORT_SYMBOL_NS_GPL(adc5_gen3_get_scaled_reading, "QCOM_SPMI_ADC5_GEN3");
 
@@ -740,6 +822,8 @@ EXPORT_SYMBOL_NS_GPL(adc5_gen3_therm_code_to_temp, "QCOM_SPMI_ADC5_GEN3");
 static int adc5_gen3_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
+	struct device_node *root __free(device_node) = of_find_node_by_path("/");
+	bool poll_thermal = of_property_read_bool(root, "meizu,pmic-thermal-polling");
 	struct iio_dev *indio_dev;
 	struct adc5_chip *adc;
 	struct regmap *regmap;
@@ -822,9 +906,16 @@ static int adc5_gen3_probe(struct platform_device *pdev)
 		return ret;
 
 	if (adc->n_tm_channels > 0) {
-		ret = adc5_gen3_add_aux_tm_device(adc, iio_device_id(indio_dev));
-		if (ret)
-			return dev_err_probe(dev, ret, "Failed to add auxiliary TM device\n");
+		if (poll_thermal) {
+			ret = adc5_gen3_register_polled_zones(adc);
+			if (ret)
+				return ret;
+		} else {
+			ret = adc5_gen3_add_aux_tm_device(adc, iio_device_id(indio_dev));
+			if (ret)
+				return dev_err_probe(dev, ret,
+						     "Failed to add auxiliary TM device\n");
+		}
 	}
 
 	indio_dev->name = "spmi-adc5-gen3";
