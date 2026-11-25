@@ -1359,7 +1359,7 @@ static int qcom_geni_serial_startup(struct uart_port *uport)
 	}
 
 	if (port->dev_data->vendor_hs && port->wakeup_irq > 0) {
-		ret = dev_pm_set_dedicated_wake_irq(uport->dev, port->wakeup_irq);
+		ret = dev_pm_set_dedicated_wake_irq_reverse(uport->dev, port->wakeup_irq);
 		if (ret)
 			goto err_vote;
 
@@ -1854,15 +1854,25 @@ static int qcom_geni_serial_runtime_suspend(struct device *dev)
 	if (opened) {
 		uart_port_lock_irq(uport);
 		/* Block the peer while we drain RX DMA and arm its GPIO wake. */
+		writel(UART_MANUAL_RFR_EN, uport->membase + SE_UART_MANUAL_RFR);
+		udelay(10);
 		writel(UART_MANUAL_RFR_EN | UART_RFR_NOT_READY,
 		       uport->membase + SE_UART_MANUAL_RFR);
+		mb();
 		if (qcom_geni_serial_busy(port)) {
+			writel(UART_MANUAL_RFR_EN | UART_RFR_READY,
+			       uport->membase + SE_UART_MANUAL_RFR);
+			mb();
 			qcom_geni_serial_set_mctrl(uport, uport->mctrl);
 			uart_port_unlock_irq(uport);
 			pm_runtime_mark_last_busy(dev);
 			return -EBUSY;
 		}
 		qcom_geni_serial_stop_rx_dma(uport);
+		/* Explicitly release RFR (READY) so the BT peer can send IBS_WAKE_IND. */
+		writel(UART_MANUAL_RFR_EN | UART_RFR_READY,
+		       uport->membase + SE_UART_MANUAL_RFR);
+		mb();
 		qcom_geni_serial_set_mctrl(uport, uport->mctrl);
 		port->wait_wake_byte = !!port->wake_byte;
 		WRITE_ONCE(port->clocks_on, false);
